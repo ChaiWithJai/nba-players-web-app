@@ -1,4 +1,4 @@
-import { Model, DataTypes, Sequelize } from 'sequelize';
+import { Model, DataTypes, Sequelize } from "sequelize";
 
 export interface PlayerAttributes {
   id: number;
@@ -16,7 +16,9 @@ export interface PlayerAttributes {
   team_id: number;
 }
 
-export class Player extends Model<PlayerAttributes> implements PlayerAttributes {
+export class Player
+  extends Model<PlayerAttributes>
+  implements PlayerAttributes {
   public id!: number;
   public first_name!: string;
   public last_name!: string;
@@ -90,9 +92,9 @@ export class Player extends Model<PlayerAttributes> implements PlayerAttributes 
       },
       {
         sequelize,
-        tableName: 'players',
+        tableName: "players",
         timestamps: true,
-        updatedAt: 'updated_at',
+        updatedAt: "updated_at",
         createdAt: false,
       }
     );
