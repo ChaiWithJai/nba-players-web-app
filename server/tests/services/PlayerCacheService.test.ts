@@ -1,107 +1,103 @@
-import { PlayerCacheService } from '../../src/services/PlayerCacheService';
-import { Player, PlayerAttributes } from '../../src/models/Player';
-import axios from 'axios';
+import { PlayerCacheService } from "../../src/services/PlayerCacheService";
+import { Player, PlayerAttributes } from "../../src/models/Player";
+import { BallDontLieApiService } from "../../src/services/BallDontLieAPIService";
 
-jest.mock('../../src/models/Player');
-jest.mock('axios');
+jest.mock("../../src/models/Player");
+jest.mock("../../src/services/BallDontLieAPIService");
 
-const mockedAxios = axios as jest.Mocked<typeof axios>;
-
-describe('PlayerCacheService', () => {
+describe("PlayerCacheService", () => {
   let playerCacheService: PlayerCacheService;
+  let mockApiService: jest.Mocked<BallDontLieApiService>;
+
+  const mockPlayerData: PlayerAttributes = {
+    id: 1,
+    first_name: "John",
+    last_name: "Doe",
+    position: "G",
+    height: "6-2",
+    weight: "195",
+    jersey_number: "23",
+    college: "University",
+    country: "USA",
+    draft_year: 2020,
+    draft_round: 1,
+    draft_number: 1,
+    team_id: 1,
+  };
 
   beforeEach(() => {
+    mockApiService = new BallDontLieApiService() as jest.Mocked<BallDontLieApiService>;
     playerCacheService = new PlayerCacheService();
-    jest.clearAllMocks();
+    (playerCacheService as any).apiService = mockApiService;
   });
 
-  it('should return player data from DB if available', async () => {
-    const mockPlayerFromDb: PlayerAttributes = {
-      id: 2,
-      first_name: 'Jane',
-      last_name: 'Smith',
-      position: 'F',
-      height: '6-5',
-      weight: '190',
-      jersey_number: '23',
-      college: 'State University',
-      country: 'USA',
-      draft_year: 2018,
-      draft_round: 1,
-      draft_number: 5,
-      team_id: 2,
-    };
+  describe("getPlayerByIdAndUpdate", () => {
+    it("should return player from database if exists", async () => {
+      (Player.findByPk as jest.Mock).mockResolvedValue({
+        toJSON: () => mockPlayerData,
+      });
 
-    (Player.findByPk as jest.Mock).mockResolvedValue({
-      get: jest.fn().mockReturnValue(mockPlayerFromDb),
+      const result = await playerCacheService.getPlayerByIdAndUpdate(1);
+
+      expect(result).toEqual(mockPlayerData);
+      expect(Player.findByPk).toHaveBeenCalledWith(1);
+      expect(mockApiService.getPlayer).not.toHaveBeenCalled();
     });
 
-    const result = await playerCacheService.getPlayerByIdAndUpdate(2);
+    it("should fetch from API and create player if not in database", async () => {
+      (Player.findByPk as jest.Mock).mockResolvedValue(null);
+      mockApiService.getPlayer.mockResolvedValue(mockPlayerData);
+      (Player.create as jest.Mock).mockResolvedValue({
+        toJSON: () => mockPlayerData,
+      });
 
-    expect(result).toEqual(mockPlayerFromDb);
-    expect(Player.findByPk).toHaveBeenCalledWith(2);
+      const result = await playerCacheService.getPlayerByIdAndUpdate(1);
+
+      expect(result).toEqual(mockPlayerData);
+      expect(Player.findByPk).toHaveBeenCalledWith(1);
+      expect(mockApiService.getPlayer).toHaveBeenCalledWith(1);
+      expect(Player.create).toHaveBeenCalledWith(mockPlayerData);
+    });
   });
 
-  it('should return player data from API if not found in DB', async () => {
-    const mockPlayerFromApi = {
-      id: 3,
-      first_name: 'Mike',
-      last_name: 'Jordan',
-      position: 'G',
-      height: '6-6',
-      weight: '200',
-      jersey_number: '23',
-      college: 'North Carolina',
-      country: 'USA',
-      draft_year: 1984,
-      draft_round: 1,
-      draft_number: 3,
-      team: { id: 3 },
-    };
+  describe("searchPlayers", () => {
+    it("should return players from database if enough results", async () => {
+      const mockPlayers = [
+        mockPlayerData,
+        { ...mockPlayerData, id: 2, first_name: "Jane" },
+      ];
+      (Player.findAndCountAll as jest.Mock).mockResolvedValue({
+        rows: mockPlayers.map((player) => ({ toJSON: () => player })),
+        count: 2,
+      });
 
-    const mockCreatedPlayer = {
-      ...mockPlayerFromApi,
-      team_id: 3,
-      toJSON: jest.fn().mockReturnValue({
-        ...mockPlayerFromApi,
-        team_id: 3,
-      }),
-    };
+      const result = await playerCacheService.searchPlayers("Doe", 1, 2);
 
-    (Player.findByPk as jest.Mock).mockResolvedValue(null);
-    mockedAxios.get.mockResolvedValue({ status: 200, data: mockPlayerFromApi });
-    (Player.create as jest.Mock).mockResolvedValue(mockCreatedPlayer);
+      expect(result.data).toEqual(mockPlayers);
+      expect(result.meta.next_cursor).toBeNull();
+      expect(mockApiService.searchPlayers).not.toHaveBeenCalled();
+    });
 
-    const result = await playerCacheService.getPlayerByIdAndUpdate(3);
+    it("should fetch from API if not enough results in database", async () => {
+      const mockApiPlayers = [
+        mockPlayerData,
+        { ...mockPlayerData, id: 2, first_name: "Jane" },
+      ];
+      (Player.findAndCountAll as jest.Mock).mockResolvedValue({
+        rows: [],
+        count: 0,
+      });
+      mockApiService.searchPlayers.mockResolvedValue({
+        data: mockApiPlayers,
+        meta: { next_cursor: null, per_page: 2 },
+      });
+      (Player.upsert as jest.Mock).mockResolvedValue([{}, false]);
 
-    expect(result).toEqual(expect.objectContaining({
-      id: 3,
-      first_name: 'Mike',
-      last_name: 'Jordan',
-      position: 'G',
-      height: '6-6',
-      weight: '200',
-      jersey_number: '23',
-      college: 'North Carolina',
-      country: 'USA',
-      draft_year: 1984,
-      draft_round: 1,
-      draft_number: 3,
-      team_id: 3,
-    }));
-    expect(Player.findByPk).toHaveBeenCalledWith(3);
-    expect(mockedAxios.get).toHaveBeenCalledWith('https://www.balldontlie.io/api/v1/players/3');
-    expect(Player.create).toHaveBeenCalled();
-  });
+      const result = await playerCacheService.searchPlayers("Doe", 1, 2);
 
-  it('should return null if player data is not found in DB or API', async () => {
-    (Player.findByPk as jest.Mock).mockResolvedValue(null);
-    mockedAxios.get.mockResolvedValue({ status: 404 });
-
-    const result = await playerCacheService.getPlayerByIdAndUpdate(4);
-
-    expect(result).toBeNull();
-    expect(Player.findByPk).toHaveBeenCalledWith(4);
-    expect(mockedAxios.get).toHaveBeenCalledWith('https://www.balldontlie.io/api/v1/players/4');
+      expect(result.data).toEqual(mockApiPlayers);
+      expect(mockApiService.searchPlayers).toHaveBeenCalledWith("Doe", 1, 2);
+      expect(Player.upsert).toHaveBeenCalledTimes(2);
+    });
   });
 });
