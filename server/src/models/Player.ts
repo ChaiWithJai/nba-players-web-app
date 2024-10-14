@@ -37,7 +37,7 @@ export class Player extends Model<PlayerAttributes> implements PlayerAttributes 
         id: {
           type: DataTypes.INTEGER,
           primaryKey: true,
-          autoIncrement: false,
+          autoIncrement: false, // This is correct as per the API response
         },
         first_name: {
           type: DataTypes.STRING,
@@ -91,7 +91,9 @@ export class Player extends Model<PlayerAttributes> implements PlayerAttributes 
       {
         sequelize,
         tableName: 'players',
-        timestamps: false,
+        timestamps: true,
+        updatedAt: 'updated_at',
+        createdAt: false,
       }
     );
   }
