@@ -1,57 +1,79 @@
-import axios from 'axios';
-import { Player, PlayerAttributes } from '../models/Player';
+import { Op } from "sequelize";
+import { Player, PlayerAttributes } from "../models/Player";
+import { BallDontLieApiService } from "./BallDontLieAPIService";
 
 export class PlayerCacheService {
-  async getPlayerByIdAndUpdate(playerId: number): Promise<PlayerAttributes | null> {
-    // Step 1: Check the database
-    try {
-      const playerFromDb = await Player.findByPk(playerId);
-      if (playerFromDb) {
-        return playerFromDb.get({ plain: true }) as PlayerAttributes;
-      }
-    } catch (error) {
-      console.error(`Error fetching player from database: ${error}`);
-    }
+  private apiService: BallDontLieApiService;
 
-    // Step 2: Fetch from external API if not found in database
-    try {
-      const playerFromApi = await this.fetchPlayerFromApi(playerId);
-      if (playerFromApi) {
-        // Store the new data in the database
-        const createdPlayer = await Player.create(playerFromApi);
-        return createdPlayer.toJSON() as PlayerAttributes;  // Use toJSON instead of get
-      }
-    } catch (error) {
-      console.error(`Error fetching player from external API: ${error}`);
-    }
-
-    return null;
+  constructor() {
+    this.apiService = new BallDontLieApiService();
   }
 
-  private async fetchPlayerFromApi(playerId: number): Promise<PlayerAttributes | null> {
+  async getPlayerByIdAndUpdate(
+    playerId: number
+  ): Promise<PlayerAttributes | null> {
     try {
-      const response = await axios.get(`https://www.balldontlie.io/api/v1/players/${playerId}`);
-      if (response.status === 200) {
-        const player = response.data;
-        return {
-          id: player.id,
-          first_name: player.first_name,
-          last_name: player.last_name,
-          position: player.position,
-          height: `${player.height || ''}`,
-          weight: `${player.weight || ''}`,
-          jersey_number: player.jersey_number || '',
-          college: player.college || '',
-          country: player.country || '',
-          draft_year: player.draft_year || 0,
-          draft_round: player.draft_round || 0,
-          draft_number: player.draft_number || 0,
-          team_id: player.team.id,
-        };
+      let player = await Player.findByPk(playerId);
+      if (!player) {
+        const playerFromApi = await this.apiService.getPlayer(playerId);
+        if (playerFromApi) {
+          player = await Player.create(playerFromApi);
+        }
       }
+      return player ? player.toJSON() : null;
     } catch (error) {
-      console.error(`Error fetching player data from API: ${error}`);
+      console.error(`Error fetching player ${playerId}:`, error);
+      return null;
     }
-    return null;
+  }
+
+  async searchPlayers(
+    name: string,
+    page: number = 1,
+    perPage: number = 25
+  ): Promise<{
+    data: PlayerAttributes[];
+    meta: { next_cursor: number | null; per_page: number };
+  }> {
+    try {
+      // First, search in our database
+      const dbPlayers = await Player.findAndCountAll({
+        where: {
+          [Op.or]: [
+            { first_name: { [Op.iLike]: `%${name}%` } },
+            { last_name: { [Op.iLike]: `%${name}%` } },
+          ],
+        },
+        limit: perPage,
+        offset: (page - 1) * perPage,
+        order: [["id", "ASC"]],
+      });
+
+      // If we don't have enough results, fetch from API
+      if (dbPlayers.count < perPage) {
+        const apiResult = await this.apiService.searchPlayers(
+          name,
+          page,
+          perPage
+        );
+        // Update our database with new players
+        for (const player of apiResult.data) {
+          await Player.upsert(player);
+        }
+        return apiResult;
+      }
+
+      // If we have enough results from the database, return those
+      return {
+        data: dbPlayers.rows.map((player) => player.toJSON()),
+        meta: {
+          next_cursor: dbPlayers.count > page * perPage ? page + 1 : null,
+          per_page: perPage,
+        },
+      };
+    } catch (error) {
+      console.error(`Error searching players:`, error);
+      throw error;
+    }
   }
 }
