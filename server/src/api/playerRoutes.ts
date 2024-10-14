@@ -8,7 +8,7 @@ import {
 const router = express.Router();
 
 router.get("/", getPlayers);
-router.get("/search", searchPlayers);
+// router.get("/search", searchPlayers);
 router.get("/:id", getPlayerById);
 
 export default router;

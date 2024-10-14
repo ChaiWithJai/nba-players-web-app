@@ -5,6 +5,7 @@ import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import { Sequelize } from "sequelize";
 import dotenv from "dotenv";
+import path from "path";
 
 import playerRoutes from "./api/playerRoutes";
 import { Player } from "./models/Player";
@@ -15,17 +16,23 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 
-// Database connection
-const sequelize = new Sequelize(process.env.DATABASE_URL as string, {
-  dialect: "postgres",
-  logging: false, // Set to console.log to see SQL queries
+// Database setup
+const dbPath = path.join(__dirname, '..', '..', 'database.sqlite');
+const sequelize = new Sequelize({
+  dialect: 'sqlite',
+  storage: dbPath,
+  logging: console.log // You can adjust this based on your logging preferences
 });
 
-// Test database connection
-sequelize
-  .authenticate()
-  .then(() => console.log("Database connected."))
-  .catch((err) => console.error("Unable to connect to the database:", err));
+// Test the database connection
+(async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('Connection to the database has been established successfully.');
+  } catch (error) {
+    console.error('Unable to connect to the database:', error);
+  }
+})();
 
 // Initialize models
 Player.initialize(sequelize);
